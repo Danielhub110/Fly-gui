@@ -1,0 +1,188 @@
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Main Wrapper Function
+local function createFlyGui()
+	-- Main GUI Setup
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "FlyGuiV3"
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = playerGui
+
+	-- Core Frame (This acts as the draggable window)
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Size = UDim2.new(0, 285, 0, 150)
+	mainFrame.Position = UDim2.new(0.5, -142, 0.2, 0)
+	mainFrame.BackgroundTransparency = 1
+	mainFrame.Parent = screenGui
+
+	-- Utility function to generate styled text buttons
+	local function createButton(name, text, color, size, position)
+		local button = Instance.new("TextButton")
+		button.Name = name
+		button.Size = size
+		button.Position = position
+		button.BackgroundColor3 = color
+		button.BorderSizePixel = 1
+		button.BorderColor3 = Color3.fromRGB(0, 0, 0)
+		button.Text = text
+		button.TextColor3 = Color3.fromRGB(0, 0, 0)
+		button.Font = Enum.Font.SourceSansBold
+		button.TextSize = 24
+		button.Parent = mainFrame
+		return button
+	end
+
+	-- Recreating your specific UI layout
+	local closeBtn  = createButton("Close", "X", Color3.fromRGB(255, 0, 0), UDim2.new(0, 75, 0, 50), UDim2.new(0, 0, 0, 0))
+	local minusTop  = createButton("MinusTop", "-", Color3.fromRGB(180, 140, 255), UDim2.new(0, 75, 0, 50), UDim2.new(0, 75, 0, 0))
+	local plusBtn   = createButton("Plus", "+", Color3.fromRGB(140, 160, 255), UDim2.new(0, 75, 0, 50), UDim2.new(0, 75, 0, 50))
+
+	-- Title Banner (Drag handle)
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "Title"
+	titleLabel.Size = UDim2.new(0, 135, 0, 50)
+	titleLabel.Position = UDim2.new(0, 150, 0, 50)
+	titleLabel.BackgroundColor3 = Color3.fromRGB(255, 50, 255)
+	titleLabel.BorderSizePixel = 1
+	titleLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
+	titleLabel.Text = "FLY GUI"
+	titleLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+	titleLabel.Font = Enum.Font.SourceSansBold
+	titleLabel.TextSize = 14
+	titleLabel.Parent = mainFrame
+
+	local minusBtm  = createButton("MinusBottom", "-", Color3.fromRGB(140, 240, 255), UDim2.new(0, 75, 0, 50), UDim2.new(0, 75, 0, 100))
+	local valueBtn  = createButton("Value", "1", Color3.fromRGB(255, 100, 0), UDim2.new(0, 75, 0, 50), UDim2.new(0, 150, 0, 100))
+	local flyToggle = createButton("FlyToggle", "fly", Color3.fromRGB(255, 255, 100), UDim2.new(0, 60, 0, 50), UDim2.new(0, 225, 0, 100))
+
+	-- Touch & Drag Logic for iPad
+	local dragging, dragInput, dragStart, startPos
+	local function updateDrag(input)
+		local delta = input.Position - dragStart
+		local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		TweenService:Create(mainFrame, TweenInfo.new(0.1), {Position = targetPos}):Play()
+	end
+
+	titleLabel.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = mainFrame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then updateDrag(input) end
+	end)
+
+	-- Configuration & CFrame Flight States
+	local speedValue = 1
+	local isFlying = false
+	local flyConnection = nil
+
+	-- CFrame uses smaller direct offsets per frame compared to velocity forces
+	local BASE_SPEED_MULTIPLIER = 1.2 
+
+	local function updateSpeedDisplay()
+		valueBtn.Text = tostring(speedValue)
+	end
+
+	-- Absolute CFrame Flight Override Function
+	local function toggleFlight()
+		local character = player.Character or player.CharacterAdded:Wait()
+		local rootPart = character:WaitForChild("HumanoidRootPart")
+		local humanoid = character:WaitForChild("Humanoid")
+
+		if isFlying then
+			isFlying = false
+			flyToggle.BackgroundColor3 = Color3.fromRGB(255, 255, 100)
+			
+			if flyConnection then
+				flyConnection:Disconnect()
+				flyConnection = nil
+			end
+			
+			-- Restore normal gravity state
+			rootPart.Anchored = false
+		else
+			isFlying = true
+			flyToggle.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+
+			-- Loop that explicitly updates CFrame coordinates independently from game physics
+			flyConnection = RunService.RenderStepped:Connect(function()
+				if not character or not rootPart.Parent then return end
+				
+				local camCFrame = workspace.CurrentCamera.CFrame
+				
+				-- If you are pushing your moving joystick thumb circle
+				if humanoid.MoveDirection.Magnitude > 0 then
+					local lookVector = camCFrame.LookVector
+					local rightVector = camCFrame.RightVector
+					
+					-- Extract active movement direction
+					local flatMove = humanoid.MoveDirection
+					
+					-- Use camera look angle to pull character upward or downward natively
+					local direction = (lookVector * flatMove.Z) + (rightVector * flatMove.X)
+					if flatMove.Z < 0 then
+						-- Pushing forward translates to moving straight along camera look line
+						direction = lookVector
+					elseif flatMove.Z > 0 then
+						-- Pulling back translates backward along camera look line
+						direction = -lookVector
+					end
+					
+					-- Apply position changes smoothly over space frames
+					local calculateMove = direction.Unit * (speedValue * BASE_SPEED_MULTIPLIER)
+					rootPart.CFrame = CFrame.new(rootPart.Position + calculateMove) * CFrame.lookAt(rootPart.Position, rootPart.Position + camCFrame.LookVector).Rotation
+				else
+					-- Hold character completely frozen in mid-air when joystick is idle
+					rootPart.Velocity = Vector3.new(0, 0, 0)
+				end
+			end)
+		end
+	end
+
+	-- Value Counter Mechanics
+	plusBtn.MouseButton1Click:Connect(function()
+		speedValue = speedValue + 1
+		updateSpeedDisplay()
+	end)
+
+	local function handleMinus()
+		if speedValue > 1 then
+			speedValue = speedValue - 1
+			updateSpeedDisplay()
+		end
+	end
+	minusTop.MouseButton1Click:Connect(handleMinus)
+	minusBtm.MouseButton1Click:Connect(handleMinus)
+
+	-- Close Action
+	closeBtn.MouseButton1Click:Connect(function()
+		if isFlying then toggleFlight() end
+		screenGui:Destroy()
+	end)
+	
+	flyToggle.MouseButton1Click:Connect(toggleFlight)
+	
+	return screenGui
+end
+
+createFlyGui()
